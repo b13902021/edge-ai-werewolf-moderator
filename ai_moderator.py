@@ -13,9 +13,12 @@ import edge_tts
 import pygame
 import tempfile
 import os
+import subprocess
+import sys
+from functools import lru_cache
 
 # ==========================================
-# 1. 語音引擎初始化 (微軟 Edge 真人神經語音 + 本機備援)
+# 1. 語音引擎初始化 (微軟 Edge 真人神經語音 + 跨平台本機備援)
 # ==========================================
 
 pygame.mixer.init()
@@ -24,21 +27,39 @@ pygame.mixer.init()
 _fallback_warning_printed = False
 
 def speak(text):
-    """使用 Edge TTS 生成真人語音，若失敗則自動降級為本機 pyttsx3 備援 (支援 Win/Mac)"""
+    """使用 Edge TTS 生成真人語音，若失敗則使用 macOS/Linux/Windows 本機備援"""
     print(f"[法官廣播]: {text}")
     
     def fallback_speak():
         global _fallback_warning_printed
         try:
-            # 只有第一次觸發備援時會印出提示，之後就默默執行
+            # 只有第一次觸發備援時會印出提示
             if not _fallback_warning_printed:
                 print("[系統提示]: 雲端語音連線失敗，切換至本機備援語音... (後續將不再重複提示)")
                 _fallback_warning_printed = True
                 
+            # 1. Mac 系統
+            if sys.platform == "darwin":
+                subprocess.run(
+                    ["/usr/bin/say", "-v", "Meijia", "-r", "160", text],
+                    check=True,
+                )
+                return
+
+            # 2. Linux 系統 (包含 Ubuntu, WSL 等)
+            if sys.platform.startswith("linux"):
+                # 呼叫 Linux 內建的 espeak (需確保系統已安裝 espeak)
+                subprocess.run(
+                    ["espeak", "-v", "zh", "-s", "160", text], 
+                    check=True,
+                )
+                return
+
+            # 3. Windows 系統 (透過 pyttsx3 呼叫內建語音)
             engine = pyttsx3.init()
             engine.setProperty('rate', 160)
             
-            zh_voice_keywords = ['Hanhan', 'Yating', 'Zhiwei', 'Taipei', 'Ting-Ting', 'Mei-Jia', 'Sin-Ji']
+            zh_voice_keywords = ['Hanhan', 'Yating', 'Zhiwei', 'Taipei']
             for voice in engine.getProperty('voices'):
                 if any(keyword in voice.name for keyword in zh_voice_keywords):
                     engine.setProperty('voice', voice.id)
@@ -46,11 +67,11 @@ def speak(text):
                     
             engine.say(text)
             engine.runAndWait()
+            
         except Exception as e:
-            # 本機端也徹底壞掉時的最後防線
-            if not _fallback_warning_printed:
-                print(f"備用語音錯誤: {e}")
-                _fallback_warning_printed = True
+            # 終極防線：當該作業系統連內建語音都壞掉或沒安裝時，切換為無聲字幕
+            print(f">>> [法官無聲字幕]: {text}")
+            time.sleep(2)
 
     async def _speak():
         try:
@@ -75,16 +96,34 @@ def speak(text):
             
     asyncio.run(_speak())
 
+@lru_cache(maxsize=16)
+def chinese_font(font_size):
+    """Load a Chinese-capable font once per size."""
+    candidates = [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "msjh.ttc"),
+        "msjh.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, font_size)
+        except OSError:
+            continue
+    raise RuntimeError("找不到中文字型。請安裝 Noto Sans CJK 或設定中文字型路徑。")
+
 def put_chinese_text(img, text, position, text_color=(0, 255, 255), font_size=30):
-    """使用 Pillow 在 OpenCV 影像上繪製中文字"""
+    """Draw Chinese text with a contrasting panel on camera frames."""
     img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(img_pil)
-    try:
-        font = ImageFont.truetype("msjh.ttc", font_size)
-    except IOError:
-        font = ImageFont.load_default()
+    font = chinese_font(font_size)
+    bounds = draw.textbbox(position, text, font=font)
+    background = (245, 245, 245) if sum(text_color) < 384 else (20, 20, 20)
+    draw.rectangle((bounds[0] - 4, bounds[1] - 4,
+                    bounds[2] + 4, bounds[3] + 4), fill=background)
     draw.text(position, text, font=font, fill=text_color)
-    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGBBGR)
 
 # ==========================================
 # 2. 視覺引擎初始化 (維持鎖定 0.10.9)
@@ -141,12 +180,11 @@ def recognize_gesture(hand_landmarks):
     # 拳頭
     if ext_count == 0: return 10 
 
-    # 台灣嚴格版數字 3 (OK 手勢：大拇指食指收起，其餘完全伸直)
-    if up_fingers == [False, False, True, True, True]: return 3
-
     # === 1~9 常規手勢 ===
     if up_fingers == [False, True, False, False, False]: return 1
     if up_fingers == [False, True, True, False, False]: return 2
+    if up_fingers == [False, True, True, True, False]: return 3
+    if up_fingers == [False, False, True, True, True]: return 3
     if up_fingers == [False, True, True, True, True]: return 4
     if up_fingers == [True, True, True, True, True]: return 5
     if up_fingers == [True, False, False, False, True]: return 6
@@ -159,14 +197,20 @@ def recognize_gesture(hand_landmarks):
 # ==========================================
 # 3. 核心工具：讀取 N 個手勢
 # ==========================================
+class CameraError(RuntimeError):
+    """The camera could not supply frames for gesture recognition."""
+
 def read_gesture(cap, n, prompt=""):
     target_gestures = []
     first_seen_time = 0
     last_seen_time = 0
 
-    while cap.isOpened():
+    while True:
+        if not cap.isOpened():
+            raise CameraError("攝影機未開啟。請確認攝影機已連接，並允許執行程式的應用程式使用攝影機。")
         ret, frame = cap.read()
-        if not ret: break
+        if not ret or frame is None:
+            raise CameraError("無法讀取攝影機畫面。請關閉其他使用攝影機的程式，檢查連線與攝影機權限後重試。")
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
@@ -236,7 +280,7 @@ def show_message(text, duration=3.0):
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
     
     root.configure(bg="#2b2b2b")
-    label = tk.Label(root, text=text, font=("微軟正黑體", 24, "bold"), 
+    label = tk.Label(root, text=text, font=("Heiti TC" if sys.platform == "darwin" else "微軟正黑體", 24, "bold"), 
                      fg="#ff6b6b", bg="#2b2b2b")
     label.pack(expand=True)
 

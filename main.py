@@ -66,7 +66,16 @@ def night():
     speak("天黑請閉眼")
     speak("狼人現身請睜眼")
     if day == 1:
-        wolf_ids = set(read_gesture(cap, wolf_count, "請比出你們的號碼"))
+        while True:
+            temp_wolves = read_gesture(cap, wolf_count, "請比出你們的號碼")
+            # 檢查是否有任何號碼 <= 0 或大於總玩家人數
+            if any(x <= 0 or x > player_count for x in temp_wolves):
+                show_message("請再比一次")
+            elif len(set(temp_wolves)) != len(temp_wolves):
+                show_message("玩家號碼不能重複，請再比一次")
+            else:
+                wolf_ids = set(temp_wolves)
+                break
         
     speak("狼人請殺人")
     while state == "WOLF":
@@ -86,7 +95,14 @@ def night():
     
     speak("女巫請睜眼")
     if day == 1:
-        witch_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+        while True:
+            witch_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+            if witch_id <= 0 or witch_id > player_count:
+                show_message("請再比一次")
+            elif witch_id in wolf_ids:
+                show_message("此號碼已被使用")
+            else:
+                break
         
     speak("他被殺死了，你要救他嗎，你要使用毒藥嗎，你要毒誰呢")
     if witch_id in survivors and antitode:
@@ -100,6 +116,8 @@ def night():
             op = read_gesture(cap, 1, "使用解藥比讚，使用毒藥比號碼，都不用比倒讚")[0]
             if op == 0 and not antitode:
                 show_message("你已用完解藥")
+            elif op == 0 and wolf_kill == witch_id:
+                show_message("女巫不能自救")
             elif op > 0 and not poison:
                 show_message("你已用完毒藥")
             elif op > 0 and op not in survivors:
@@ -122,7 +140,14 @@ def night():
     # === 預言家階段 ===
     speak("預言家請睜眼")
     if day == 1:
-        seer_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+        while True:
+            seer_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+            if seer_id <= 0 or seer_id > player_count:
+                show_message("請再比一次")
+            elif seer_id in wolf_ids or seer_id == witch_id:
+                show_message("此號碼已被使用")
+            else:
+                break
         
     speak("選擇你要查驗的號碼是")
     if seer_id in survivors:
@@ -147,7 +172,14 @@ def night():
     # === 獵人階段 ===
     speak("獵人請睜眼")
     if day == 1:
-        hunter_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+        while True:
+            hunter_id = read_gesture(cap, 1, "請比出你的號碼")[0]
+            if hunter_id <= 0 or hunter_id > player_count:
+                show_message("請再比一次")
+            elif hunter_id in wolf_ids or hunter_id in {witch_id, seer_id}:
+                show_message("此號碼已被使用")
+            else:
+                break
         
     speak("今晚的開槍手勢")
     if witch_poison == hunter_id:
