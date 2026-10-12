@@ -7,6 +7,7 @@ import time
 import math
 
 # --- 導入真人語音所需套件 ---
+import pyttsx3 
 import asyncio
 import edge_tts
 import pygame
@@ -14,36 +15,64 @@ import tempfile
 import os
 
 # ==========================================
-# 1. 語音引擎初始化 (微軟 Edge 真人神經語音)
+# 1. 語音引擎初始化 (微軟 Edge 真人神經語音 + 本機備援)
 # ==========================================
+
 pygame.mixer.init()
 
+# 新增一個全域變數，用來控制錯誤訊息只印一次
+_fallback_warning_printed = False
+
 def speak(text):
-    """使用 Edge TTS 生成真人語音並同步播放"""
+    """使用 Edge TTS 生成真人語音，若失敗則自動降級為本機 pyttsx3 備援 (支援 Win/Mac)"""
     print(f"[法官廣播]: {text}")
     
+    def fallback_speak():
+        global _fallback_warning_printed
+        try:
+            # 只有第一次觸發備援時會印出提示，之後就默默執行
+            if not _fallback_warning_printed:
+                print("[系統提示]: 雲端語音連線失敗，切換至本機備援語音... (後續將不再重複提示)")
+                _fallback_warning_printed = True
+                
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 160)
+            
+            zh_voice_keywords = ['Hanhan', 'Yating', 'Zhiwei', 'Taipei', 'Ting-Ting', 'Mei-Jia', 'Sin-Ji']
+            for voice in engine.getProperty('voices'):
+                if any(keyword in voice.name for keyword in zh_voice_keywords):
+                    engine.setProperty('voice', voice.id)
+                    break
+                    
+            engine.say(text)
+            engine.runAndWait()
+        except Exception as e:
+            # 本機端也徹底壞掉時的最後防線
+            if not _fallback_warning_printed:
+                print(f"備用語音錯誤: {e}")
+                _fallback_warning_printed = True
+
     async def _speak():
-        # "zh-TW-YunJheNeural" 是一個極度自然的台灣男聲，女聲可改 "zh-TW-HsiaoChenNeural"
-        communicate = edge_tts.Communicate(text, "zh-TW-YunJheNeural", rate="+10%")
-        
-        # 建立暫存音檔
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            temp_path = fp.name
+        try:
+            communicate = edge_tts.Communicate(text, "zh-TW-YunJheNeural", rate="+10%")
             
-        await communicate.save(temp_path)
-        
-        # 播放音檔
-        pygame.mixer.music.load(temp_path)
-        pygame.mixer.music.play()
-        
-        # 阻塞程式，直到法官把話說完才繼續動作
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+                temp_path = fp.name
+                
+            await communicate.save(temp_path)
             
-        pygame.mixer.music.unload()
-        os.remove(temp_path) # 播完後刪除暫存檔
-        
-    # 執行非同步語音生成
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+            
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
+                
+            pygame.mixer.music.unload()
+            os.remove(temp_path)
+            
+        except Exception:
+            fallback_speak()
+            
     asyncio.run(_speak())
 
 def put_chinese_text(img, text, position, text_color=(0, 255, 255), font_size=30):
