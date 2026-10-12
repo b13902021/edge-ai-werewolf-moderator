@@ -123,7 +123,7 @@ def put_chinese_text(img, text, position, text_color=(0, 255, 255), font_size=30
     draw.rectangle((bounds[0] - 4, bounds[1] - 4,
                     bounds[2] + 4, bounds[3] + 4), fill=background)
     draw.text(position, text, font=font, fill=text_color)
-    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGBBGR)
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
 # ==========================================
 # 2. 視覺引擎初始化 (維持鎖定 0.10.9)
