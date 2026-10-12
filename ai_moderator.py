@@ -268,6 +268,29 @@ def read_gesture(cap, n, prompt=""):
 # 4. 顯示機密文字視窗
 # ==========================================
 def show_message(text, duration=3.0):
+    if sys.platform == "darwin":
+        # Reuse OpenCV's Cocoa application; creating Tk here can abort macOS.
+        window = "Edge AI Werewolf Moderator"
+        font = chinese_font(24)
+        left, top, right, bottom = font.getbbox(text)
+        width = max(640, right - left + 40)
+        panel = np.full((180, width, 3), 43, dtype=np.uint8)
+        panel = put_chinese_text(
+            panel, text, ((width - (right - left)) // 2 - left,
+                          (180 - (bottom - top)) // 2 - top),
+            text_color=(255, 107, 107), font_size=24,
+        )
+        try:
+            cv2.imshow(window, panel)
+            deadline = time.monotonic() + max(0, duration)
+            while time.monotonic() < deadline:
+                if cv2.waitKey(20) & 0xFF == ord("q"):
+                    raise SystemExit(0)
+        finally:
+            # Remove secret information before the next game phase.
+            cv2.imshow(window, np.full_like(panel, 43))
+            cv2.waitKey(1)
+        return
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes('-topmost', True)
