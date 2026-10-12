@@ -1,0 +1,10 @@
+# Python 3.11; direct dependency versions from the macOS development environment.
+# MediaPipe 0.10.9 uses the legacy mp.solutions API.
+# Install only this OpenCV distribution (not opencv-python or headless alongside it).
+mediapipe==0.10.9
+opencv-contrib-python==4.11.0.86
+numpy==1.26.4
+pillow==12.3.0
+edge-tts==7.2.8
+pygame==2.6.1
+pyttsx3==2.99
