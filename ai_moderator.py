@@ -267,7 +267,11 @@ def read_gesture(cap, n, prompt=""):
 # ==========================================
 # 4. 顯示機密文字視窗
 # ==========================================
+# ==========================================
+# 4. 顯示機密文字視窗
+# ==========================================
 def show_message(text, duration=3.0):
+    # --- 1. Mac 專屬解法 (以 OpenCV 視窗取代 Tkinter，防當機) ---
     if sys.platform == "darwin":
         # Reuse OpenCV's Cocoa application; creating Tk here can abort macOS.
         window = "Edge AI Werewolf Moderator"
@@ -291,6 +295,8 @@ def show_message(text, duration=3.0):
             cv2.imshow(window, np.full_like(panel, 43))
             cv2.waitKey(1)
         return
+
+    # --- 2. Windows & Linux 解法 (維持無痕 Tkinter 視窗) ---
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes('-topmost', True)
@@ -303,7 +309,11 @@ def show_message(text, duration=3.0):
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
     
     root.configure(bg="#2b2b2b")
-    label = tk.Label(root, text=text, font=("Heiti TC" if sys.platform == "darwin" else "微軟正黑體", 24, "bold"), 
+    
+    # 針對 Linux 派發開源黑體，Windows 則維持微軟正黑體
+    tk_font = "Noto Sans CJK TC" if sys.platform.startswith("linux") else "微軟正黑體"
+    
+    label = tk.Label(root, text=text, font=(tk_font, 24, "bold"), 
                      fg="#ff6b6b", bg="#2b2b2b")
     label.pack(expand=True)
 
